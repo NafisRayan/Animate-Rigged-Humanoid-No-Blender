@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>GLB Animation Tester</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; font-family: sans-serif; }
+    #panel {
+      position: fixed; top: 0; left: 0; width: 320px; height: 100%;
+      background: rgba(20,20,20,0.92); color: #eee; padding: 1rem;
+      overflow-y: auto; box-sizing: border-box; z-index: 10;
+    }
+    #panel h2 { margin: 0 0 0.5rem; font-size: 1rem; color: #8ef; }
+    #panel input[type=text] {
+      width: 100%; padding: 0.4rem; margin-bottom: 0.75rem;
+      box-sizing: border-box; font-family: monospace;
+    }
+    #list { display: flex; flex-direction: column; gap: 2px; }
+    .anim {
+      padding: 0.4rem 0.6rem; cursor: pointer; border-radius: 4px;
+      font-size: 0.85rem; background: #2a2a2a; color: #ddd;
+    }
+    .anim:hover { background: #3a3a3a; }
+    .anim.active { background: #4a7; color: #000; font-weight: bold; }
+    #info { font-size: 0.8rem; color: #aaa; margin-bottom: 0.75rem; }
+    #status { font-size: 0.75rem; color: #8ef; margin-top: 1rem; font-family: monospace; white-space: pre-wrap; }
+    #fileRow { display: flex; gap: 4px; margin-bottom: 0.75rem; }
+    #fileRow button { flex: 1; padding: 0.4rem; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div id="panel">
+    <h2>GLB Animation Tester</h2>
+    <div id="fileRow">
+      <button id="btnMale">human_male.glb</button>
+      <button id="btnFemale">human_female.glb</button>
+    </div>
+    <div id="info">—</div>
+    <input type="text" id="search" placeholder="Filter animations...">
+    <div id="list"></div>
+    <div id="status">Ready.</div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+    // --- Scene setup ---
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x303030);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 100);
+    camera.position.set(0, 1.6, 3.5);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 1, 0);
+    controls.update();
+
+    // Lights
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.5);
+    dir.position.set(3, 5, 4);
+    scene.add(dir);
+    const grid = new THREE.GridHelper(10, 20, 0x666666, 0x444444);
+    scene.add(grid);
+
+    // --- State ---
+    const loader = new GLTFLoader();
+    let currentRoot = null;
+    let mixer = null;
+    let actions = {};
+    let activeAction = null;
+    const listEl = document.getElementById('list');
+    const infoEl = document.getElementById('info');
+    const statusEl = document.getElementById('status');
+    const searchEl = document.getElementById('search');
+
+    function log(msg) {
+      statusEl.textContent = msg;
+      console.log(msg);
+    }
+
+    function disposeCurrent() {
+      if (currentRoot) {
+        scene.remove(currentRoot);
+        currentRoot.traverse(o => {
+          if (o.geometry) o.geometry.dispose();
+          if (o.material) {
+            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            mats.forEach(m => {
+              for (const k in m) if (m[k]?.isTexture) m[k].dispose();
+              m.dispose();
+            });
+          }
+        });
+        currentRoot = null;
+      }
+      mixer = null;
+      actions = {};
+      activeAction = null;
+    }
+
+    function playAnimation(name) {
+      if (!actions[name]) return;
+      if (activeAction) activeAction.fadeOut(0.2);
+      activeAction = actions[name];
+      activeAction.reset().fadeIn(0.2).play();
+      document.querySelectorAll('.anim').forEach(el => {
+        el.classList.toggle('active', el.dataset.name === name);
+      });
+      log(`Playing: ${name}  (duration ${activeAction.getClip().duration.toFixed(2)}s)`);
+    }
+
+    function buildList(names) {
+      listEl.innerHTML = '';
+      names.forEach(name => {
+        const div = document.createElement('div');
+        div.className = 'anim';
+        div.textContent = name;
+        div.dataset.name = name;
+        div.onclick = () => playAnimation(name);
+        listEl.appendChild(div);
+      });
+    }
+
+    function filterList(query) {
+      const q = query.toLowerCase();
+      document.querySelectorAll('.anim').forEach(el => {
+        el.style.display = el.dataset.name.toLowerCase().includes(q) ? '' : 'none';
+      });
+    }
+
+    searchEl.oninput = () => filterList(searchEl.value);
+
+    function loadGLB(url) {
+      log(`Loading ${url} ...`);
+      disposeCurrent();
+      listEl.innerHTML = '';
+      infoEl.textContent = 'Loading...';
+
+      loader.load(url, (gltf) => {
+        currentRoot = gltf.scene;
+        scene.add(currentRoot);
+
+        // Fit camera to model
+        const box = new THREE.Box3().setFromObject(currentRoot);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        controls.target.copy(center);
+        camera.position.set(center.x, center.y + size.y * 0.3, center.z + Math.max(size.x, size.y) * 2);
+        controls.update();
+
+        mixer = new THREE.AnimationMixer(currentRoot);
+        actions = {};
+        gltf.animations.forEach(clip => {
+          actions[clip.name] = mixer.clipAction(clip);
+        });
+
+        const names = gltf.animations.map(a => a.name).sort();
+        buildList(names);
+
+        infoEl.textContent = `${names.length} animations`;
+        log(`Loaded ${url} — ${names.length} animations`);
+
+        // Auto-play first
+        if (names.length) playAnimation(names[0]);
+      }, (progress) => {
+        if (progress.total) {
+          const pct = ((progress.loaded / progress.total) * 100).toFixed(0);
+          log(`Loading ${url} ... ${pct}%`);
+        }
+      }, (err) => {
+        console.error(err);
+        log(`Failed to load ${url}: ${err.message}`);
+      });
+    }
+
+    document.getElementById('btnMale').onclick = () => loadGLB('./human_male.glb');
+    document.getElementById('btnFemale').onclick = () => loadGLB('./human_female.glb');
+
+    // --- Render loop ---
+    const clock = new THREE.Clock();
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = clock.getDelta();
+      if (mixer) mixer.update(dt);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Auto-load male on open
+    loadGLB('./human_male.glb');
+  </script>
+</body>
+</html>

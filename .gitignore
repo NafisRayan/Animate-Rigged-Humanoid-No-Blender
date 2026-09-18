@@ -1,0 +1,38 @@
+# ── Node.js ─────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.npm/
+
+# ── Generated output (created by merge/merge.mjs) ───────
+merge/human_male.glb
+merge/human_female.glb
+merge/*.bak.glb
+
+# ── Third-party / re-downloadable assets ────────────────
+# Quaternius Universal Animation Libraries & Base Characters.
+# Large binary asset packs — re-download per Readme.md Step 1.
+Universal Animation Library[Standard]/
+Universal Animation Library 2[Standard]/
+Universal Base Characters[Standard]/
+
+# Copies of source assets extracted into the merge workspace
+merge/*.gltf
+merge/*.bin
+merge/*.png
+merge/UAL1_Standard.glb
+merge/UAL2_Standard.glb
+
+# ── OS junk ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ── Editors / IDE ───────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
